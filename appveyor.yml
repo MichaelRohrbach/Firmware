@@ -33,7 +33,7 @@ install:
 
 build_script:
 # FIXME Temporary we need to create the home folder because it's not contained in installer 0.5 and CI fails if it doesn't exist
-- mkdir C:\PX4\home
+- if not exist "C:\PX4\home" mkdir C:\PX4\home
 # setup the environmental variables to work within the installed cygwin toolchain
 - call C:\PX4\toolchain\scripts\setup-environment.bat x
 # safe the repopath for switching to it in cygwin bash
@@ -41,9 +41,9 @@ build_script:
 # fetch all submodules in parallel
 - call bash --login -c "cd $repopath && git submodule -q update --init --recursive --jobs=10"
 # make SITL
-- call bash --login -c "cd $repopath && make posix"
+- call bash --login -c "cd $repopath && make px4_sitl_test"
 # make pixracer to check NuttX build
-- call bash --login -c "cd $repopath && make px4fmu-v4_default"
+- call bash --login -c "cd $repopath && make px4_fmu-v4_default"
 # run tests
 - call bash --login -c "cd $repopath && make tests"
 

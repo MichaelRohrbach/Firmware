@@ -42,41 +42,50 @@
 
 #pragma once
 
-#include <px4_posix.h>
-#include <px4_module_params.h>
-
+#include <pthread.h>
 #include <stdbool.h>
+
 #ifdef __PX4_NUTTX
 #include <nuttx/fs/fs.h>
 #else
-#include <sys/socket.h>
 #include <arpa/inet.h>
 #include <drivers/device/device.h>
+#include <sys/socket.h>
 #endif
 
 #if defined(CONFIG_NET) || !defined(__PX4_NUTTX)
-#include <netinet/in.h>
 #include <net/if.h>
+#include <netinet/in.h>
 #endif
 
+#include <containers/List.hpp>
+#include <drivers/device/ringbuffer.h>
 #include <parameters/param.h>
 #include <perf/perf_counter.h>
-#include <pthread.h>
+#include <px4_cli.h>
+#include <px4_config.h>
+#include <px4_defines.h>
+#include <px4_getopt.h>
+#include <px4_module.h>
+#include <px4_module_params.h>
+#include <px4_posix.h>
 #include <systemlib/mavlink_log.h>
-#include <drivers/device/ringbuffer.h>
-
-#include <uORB/uORB.h>
-#include <uORB/topics/mission.h>
+#include <systemlib/uthash/utlist.h>
+#include <uORB/topics/mavlink_log.h>
 #include <uORB/topics/mission_result.h>
 #include <uORB/topics/radio_status.h>
 #include <uORB/topics/telemetry_status.h>
+#include <uORB/uORB.h>
 
-#include "mavlink_bridge_header.h"
-#include "mavlink_orb_subscription.h"
-#include "mavlink_stream.h"
+#include "mavlink_command_sender.h"
 #include "mavlink_messages.h"
+#include "mavlink_orb_subscription.h"
 #include "mavlink_shell.h"
 #include "mavlink_ulog.h"
+
+#define DEFAULT_REMOTE_PORT_UDP 14550 ///< GCS port per MAVLink spec
+#define DEFAULT_DEVICE_NAME     "/dev/ttyS1"
+#define HASH_PARAM              "_HASH_CHECK"
 
 enum Protocol {
 	SERIAL = 0,
@@ -85,8 +94,6 @@ enum Protocol {
 };
 
 using namespace time_literals;
-
-#define HASH_PARAM "_HASH_CHECK"
 
 class Mavlink : public ModuleParams
 {
@@ -154,21 +161,21 @@ public:
 
 	static int		get_uart_fd(unsigned index);
 
-	int			get_uart_fd();
+	int			get_uart_fd() const { return _uart_fd; }
 
 	/**
 	 * Get the MAVLink system id.
 	 *
 	 * @return		The system ID of this vehicle
 	 */
-	int			get_system_id();
+	int			get_system_id() const { return mavlink_system.sysid; }
 
 	/**
 	 * Get the MAVLink component id.
 	 *
 	 * @return		The component ID of this vehicle
 	 */
-	int			get_component_id();
+	int			get_component_id() const { return mavlink_system.compid; }
 
 	const char *_device_name;
 
@@ -181,6 +188,7 @@ public:
 		MAVLINK_MODE_CONFIG,
 		MAVLINK_MODE_IRIDIUM,
 		MAVLINK_MODE_MINIMAL,
+		MAVLINK_MODE_EXTVISION,
 
 		MAVLINK_MODE_COUNT
 	};
@@ -223,6 +231,9 @@ public:
 
 		case MAVLINK_MODE_MINIMAL:
 			return "Minimal";
+
+		case MAVLINK_MODE_EXTVISION:
+			return "ExtVision";
 
 		default:
 			return "Unknown";
@@ -294,11 +305,10 @@ public:
 	 */
 	bool			get_manual_input_mode_generation() { return _generate_rc; }
 
-
 	/**
 	 * This is the beginning of a MAVLINK_START_UART_SEND/MAVLINK_END_UART_SEND transaction
 	 */
-	void 			begin_send();
+	void 			begin_send() { pthread_mutex_lock(&_send_mutex); }
 
 	/**
 	 * Send bytes out on the link.
@@ -330,7 +340,7 @@ public:
 	 */
 	MavlinkOrbSubscription *add_orb_subscription(const orb_id_t topic, int instance = 0, bool disable_sharing = false);
 
-	int			get_instance_id();
+	int			get_instance_id() const { return _instance_id; }
 
 	/**
 	 * Enable / disable hardware flow control.
@@ -339,7 +349,7 @@ public:
 	 */
 	int			enable_flow_control(enum FLOW_CONTROL_MODE enabled);
 
-	mavlink_channel_t	get_channel();
+	mavlink_channel_t	get_channel() const { return _channel; }
 
 	void			configure_stream_threadsafe(const char *stream_name, float rate = -1.0f);
 
@@ -389,7 +399,7 @@ public:
 	 */
 	void			send_protocol_version();
 
-	MavlinkStream 		*get_streams() const { return _streams; }
+	List<MavlinkStream *> &get_streams() { return _streams; }
 
 	float			get_rate_mult() const { return _rate_mult; }
 
@@ -494,9 +504,9 @@ public:
 
 	bool ftp_enabled() const { return _ftp_on; }
 
-	bool hash_check_enabled() { return _param_hash_check_enabled.get(); }
-
-	bool forward_heartbeats_enabled() { return _param_heartbeat_forwarding_enabled.get(); }
+	bool hash_check_enabled() const { return _param_hash_check_enabled.get(); }
+	bool forward_heartbeats_enabled() const { return _param_heartbeat_forwarding_enabled.get(); }
+	bool odometry_loopback_enabled() const { return _param_send_odom_loopback.get(); }
 
 	struct ping_statistics_s {
 		uint64_t last_ping_time;
@@ -543,8 +553,8 @@ private:
 
 	unsigned		_main_loop_delay;	/**< mainloop delay, depends on data rate */
 
-	MavlinkOrbSubscription	*_subscriptions;
-	MavlinkStream		*_streams;
+	List<MavlinkOrbSubscription *>	_subscriptions;
+	List<MavlinkStream *>		_streams;
 
 	MavlinkShell			*_mavlink_shell;
 	MavlinkULog			*_mavlink_ulog;
@@ -642,10 +652,12 @@ private:
 		(ParamBool<px4::params::MAV_FWDEXTSP>) _param_forward_externalsp,
 		(ParamInt<px4::params::MAV_BROADCAST>) _param_broadcast_mode,
 		(ParamBool<px4::params::MAV_HASH_CHK_EN>) _param_hash_check_enabled,
-		(ParamBool<px4::params::MAV_HB_FORW_EN>) _param_heartbeat_forwarding_enabled
+		(ParamBool<px4::params::MAV_HB_FORW_EN>) _param_heartbeat_forwarding_enabled,
+		(ParamBool<px4::params::MAV_ODOM_LP>) _param_send_odom_loopback
 	)
 
 	perf_counter_t		_loop_perf;			/**< loop performance counter */
+	perf_counter_t		_loop_interval_perf;		/**< loop interval performance counter */
 
 	void			mavlink_update_parameters();
 
@@ -677,11 +689,11 @@ private:
 
 	int message_buffer_count();
 
-	int message_buffer_is_empty();
+	int message_buffer_is_empty() const { return (_message_buffer.read_ptr == _message_buffer.write_ptr); }
 
 	int message_buffer_get_ptr(void **ptr, bool *is_part);
 
-	void message_buffer_mark_read(int n);
+	void message_buffer_mark_read(int n) { _message_buffer.read_ptr = (_message_buffer.read_ptr + n) % _message_buffer.size; }
 
 	void pass_message(const mavlink_message_t *msg);
 

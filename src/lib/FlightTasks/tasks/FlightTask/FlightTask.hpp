@@ -45,6 +45,7 @@
 #include <drivers/drv_hrt.h>
 #include <matrix/matrix/math.hpp>
 #include <uORB/Subscription.hpp>
+#include <uORB/topics/landing_gear.h>
 #include <uORB/topics/vehicle_local_position.h>
 #include <uORB/topics/vehicle_local_position_setpoint.h>
 #include <uORB/topics/vehicle_command.h>
@@ -68,6 +69,7 @@ public:
 
 	/**
 	 * Initialize the uORB subscriptions using an array
+	 * @param subscription_array handling uORB subscribtions externally across task switches
 	 * @return true on success, false on error
 	 */
 	virtual bool initializeSubscriptions(SubscriptionArray &subscription_array);
@@ -85,9 +87,10 @@ public:
 
 	/**
 	 * To be called to adopt parameters from an arrived vehicle command
+	 * @param command received command message containing the parameters
 	 * @return true if accepted, false if declined
 	 */
-	virtual bool applyCommandParameters(const vehicle_command_s &command) { return true; }
+	virtual bool applyCommandParameters(const vehicle_command_s &command) { return false; }
 
 	/**
 	 * Call before activate() or update()
@@ -104,6 +107,7 @@ public:
 
 	/**
 	 * Get the output data
+	 * @return task output setpoints that get executed by the positon controller
 	 */
 	const vehicle_local_position_setpoint_s getPositionSetpoint();
 
@@ -113,6 +117,13 @@ public:
 	 * @return constraints
 	 */
 	const vehicle_constraints_s &getConstraints() { return _constraints; }
+
+	/**
+	 * Get landing gear position.
+	 * The constraints can vary with task.
+	 * @return landing gear
+	 */
+	const landing_gear_s &getGear() { return _gear; }
 
 	/**
 	 * Get avoidance desired waypoint
@@ -131,6 +142,11 @@ public:
 	 * All constraints are set to NAN.
 	 */
 	static const vehicle_constraints_s empty_constraints;
+
+	/**
+	 * default landing gear state
+	 */
+	static const landing_gear_s empty_landing_gear_default_keep;
 
 	/**
 	 * Empty desired waypoints.
@@ -214,6 +230,8 @@ protected:
 	 * The constraints can vary with tasks.
 	 */
 	vehicle_constraints_s _constraints{};
+
+	landing_gear_s _gear{};
 
 	/**
 	 * Desired waypoints.
