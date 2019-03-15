@@ -35,7 +35,7 @@
  * @file px4_simple_app.c
  * Minimal application example for PX4 autopilot
  *
- * @author Michael Rohrbach <mroh2899@uni.sydney.edu.au>
+ * @author Example User <mail@example.com>
  */
 
 #include <px4_config.h>
@@ -47,8 +47,6 @@
 #include <string.h>
 #include <math.h>
 
-#include <px4_log.h>
-
 #include <uORB/uORB.h>
 #include <uORB/topics/sensor_combined.h>
 #include <uORB/topics/vehicle_attitude.h>
@@ -59,12 +57,17 @@ int px4_simple_app_main(int argc, char *argv[])
 {
 	PX4_INFO("Hello Sky!");
 
-    // Subscribe to the sensor_combined topic
+	/* subscribe to sensor_combined topic */
 	int sensor_sub_fd = orb_subscribe(ORB_ID(sensor_combined));
 	/* limit the update rate to 5 Hz */
-    orb_set_interval(sensor_sub_fd, 200);
+	orb_set_interval(sensor_sub_fd, 200);
 
-    /* one could wait for multiple topics with this technique, just using one here */
+	/* advertise attitude topic */
+	struct vehicle_attitude_s att;
+	memset(&att, 0, sizeof(att));
+	orb_advert_t att_pub = orb_advertise(ORB_ID(vehicle_attitude), &att);
+
+	/* one could wait for multiple topics with this technique, just using one here */
 	px4_pollfd_struct_t fds[] = {
 		{ .fd = sensor_sub_fd,   .events = POLLIN },
 		/* there could be more file descriptors here, in the form like:
@@ -73,11 +76,6 @@ int px4_simple_app_main(int argc, char *argv[])
 	};
 
 	int error_counter = 0;
-
-	/* advertise attitude topic */
-	struct vehicle_attitude_s att;
-	memset(&att, 0, sizeof(att));
-	orb_advert_t att_pub_fd = orb_advertise(ORB_ID(vehicle_attitude), &att);
 
 	for (int i = 0; i < 5; i++) {
 		/* wait for sensor update of 1 file descriptor for 1000 ms (1 second) */
@@ -98,24 +96,34 @@ int px4_simple_app_main(int argc, char *argv[])
 			error_counter++;
 
 		} else {
+
 			if (fds[0].revents & POLLIN) {
-        		/* obtained data for the first file descriptor */
+				/* obtained data for the first file descriptor */
 				struct sensor_combined_s raw;
-        		/* copy sensors raw data into local buffer */
+				/* copy sensors raw data into local buffer */
 				orb_copy(ORB_ID(sensor_combined), sensor_sub_fd, &raw);
 				PX4_INFO("Accelerometer:\t%8.4f\t%8.4f\t%8.4f",
-					(double)raw.accelerometer_m_s2[0],
-					(double)raw.accelerometer_m_s2[1],
-					(double)raw.accelerometer_m_s2[2]);
+					 (double)raw.accelerometer_m_s2[0],
+					 (double)raw.accelerometer_m_s2[1],
+					 (double)raw.accelerometer_m_s2[2]);
 
-				/* Publish the provided attitue information  */
-				orb_publish(ORB_ID(vehicle_attitude), att_pub_fd, &att);
+				/* set att and publish this information for other apps
+				 the following does not have any meaning, it's just an example
+				*/
+				att.q[0] = raw.accelerometer_m_s2[0];
+				att.q[1] = raw.accelerometer_m_s2[1];
+				att.q[2] = raw.accelerometer_m_s2[2];
+
+				orb_publish(ORB_ID(vehicle_attitude), att_pub, &att);
 			}
+
+			/* there could be more file descriptors here, in the form like:
+			 * if (fds[1..n].revents & POLLIN) {}
+			 */
 		}
-		/* there could be more file descriptors here, in the form like:
-         * if (fds[1..n].revents & POLLIN) {}
-         */
 	}
 
-	return OK;
+	PX4_INFO("exiting");
+
+	return 0;
 }
