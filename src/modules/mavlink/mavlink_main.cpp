@@ -162,27 +162,12 @@ bool Mavlink::_boot_complete = false;
 
 Mavlink::Mavlink() :
 	ModuleParams(nullptr),
-	_device_name("/dev/ttyS1"),
 	_task_should_exit(false),
-	next(nullptr),
-	_instance_id(0),
-	_transmitting_enabled(true),
-	_transmitting_enabled_commanded(false),
 	_mavlink_log_pub(nullptr),
-	_task_running(false),
-	_mavlink_buffer{},
-	_mavlink_status{},
-	_hil_enabled(false),
-	_generate_rc(false),
-	_is_usb_uart(false),
-	_wait_to_transmit(false),
-	_received_messages(false),
 	_main_loop_delay(1000),
 	_mavlink_shell(nullptr),
 	_mavlink_ulog(nullptr),
 	_mavlink_ulog_stop_requested(false),
-	_mode(MAVLINK_MODE_NORMAL),
-	_channel(MAVLINK_COMM_0),
 	_logbuffer(5, sizeof(mavlink_log_s)),
 	_receive_thread{},
 	_forwarding_on(false),
@@ -221,10 +206,6 @@ Mavlink::Mavlink() :
 	_protocol(SERIAL),
 	_network_port(14556),
 	_remote_port(DEFAULT_REMOTE_PORT_UDP),
-	_message_buffer {},
-	_message_buffer_mutex {},
-	_send_mutex {},
-
 	/* performance counters */
 	_loop_perf(perf_alloc(PC_ELAPSED, "mavlink_el")),
 	_loop_interval_perf(perf_alloc(PC_INTERVAL, "mavlink_int"))
@@ -316,7 +297,8 @@ Mavlink::~Mavlink()
 	}
 }
 
-void Mavlink::mavlink_update_parameters()
+void
+Mavlink::mavlink_update_parameters()
 {
 	updateParams();
 
@@ -352,7 +334,7 @@ Mavlink::set_proto_version(unsigned version)
 int
 Mavlink::instance_count()
 {
-	unsigned inst_index = 0;
+	size_t inst_index = 0;
 	Mavlink *inst;
 
 	LL_FOREACH(::_mavlink_instances, inst) {
@@ -549,7 +531,8 @@ Mavlink::get_uart_fd(unsigned index)
 	return -1;
 }
 
-int Mavlink::mavlink_open_uart(int baud, const char *uart_name, bool force_flow_control)
+int
+Mavlink::mavlink_open_uart(int baud, const char *uart_name, bool force_flow_control)
 {
 #ifndef B460800
 #define B460800 460800
@@ -716,7 +699,7 @@ int Mavlink::mavlink_open_uart(int baud, const char *uart_name, bool force_flow_
 		/* USB has no baudrate, but use a magic number for 'fast' */
 		_baudrate = 2000000;
 
-		set_telemetry_status_type(telemetry_status_s::TELEMETRY_STATUS_RADIO_TYPE_USB);
+		set_telemetry_status_type(telemetry_status_s::LINK_TYPE_USB);
 	}
 
 #if defined(__PX4_LINUX) || defined(__PX4_DARWIN) || defined(__PX4_CYGWIN)
@@ -1219,7 +1202,8 @@ Mavlink::send_statustext_emergency(const char *string)
 	mavlink_log_emergency(&_mavlink_log_pub, "%s", string);
 }
 
-void Mavlink::send_autopilot_capabilites()
+void
+Mavlink::send_autopilot_capabilites()
 {
 	struct vehicle_status_s status;
 
@@ -1282,7 +1266,8 @@ void Mavlink::send_autopilot_capabilites()
 	}
 }
 
-void Mavlink::send_protocol_version()
+void
+Mavlink::send_protocol_version()
 {
 	mavlink_protocol_version_t msg = {};
 
@@ -1303,7 +1288,8 @@ void Mavlink::send_protocol_version()
 	set_proto_version(curr_proto_ver);
 }
 
-MavlinkOrbSubscription *Mavlink::add_orb_subscription(const orb_id_t topic, int instance, bool disable_sharing)
+MavlinkOrbSubscription *
+Mavlink::add_orb_subscription(const orb_id_t topic, int instance, bool disable_sharing)
 {
 	if (!disable_sharing) {
 		/* check if already subscribed to this topic */
@@ -1594,7 +1580,7 @@ Mavlink::update_rate_mult()
 		// check for RADIO_STATUS timeout and reset
 		if (hrt_elapsed_time(&_rstatus.timestamp) > 5_s) {
 			PX4_ERR("instance %d: RADIO_STATUS timeout", _instance_id);
-			set_telemetry_status_type(telemetry_status_s::TELEMETRY_STATUS_RADIO_TYPE_GENERIC);
+			set_telemetry_status_type(telemetry_status_s::LINK_TYPE_GENERIC);
 
 			_radio_status_available = false;
 			_radio_status_critical = false;
@@ -1615,7 +1601,7 @@ void
 Mavlink::update_radio_status(const radio_status_s &radio_status)
 {
 	_rstatus = radio_status;
-	set_telemetry_status_type(telemetry_status_s::TELEMETRY_STATUS_RADIO_TYPE_3DR_RADIO);
+	set_telemetry_status_type(telemetry_status_s::LINK_TYPE_3DR_RADIO);
 
 	/* check hardware limits */
 	_radio_status_available = true;
@@ -2036,7 +2022,7 @@ Mavlink::task_main(int argc, char *argv[])
 
 					} else if (strcmp(myoptarg, "iridium") == 0) {
 						_mode = MAVLINK_MODE_IRIDIUM;
-						set_telemetry_status_type(telemetry_status_s::TELEMETRY_STATUS_RADIO_TYPE_IRIDIUM);
+						set_telemetry_status_type(telemetry_status_s::LINK_TYPE_IRIDIUM);
 
 					} else if (strcmp(myoptarg, "minimal") == 0) {
 						_mode = MAVLINK_MODE_MINIMAL;
@@ -2247,14 +2233,16 @@ Mavlink::task_main(int argc, char *argv[])
 			set_manual_input_mode_generation(status.rc_input_mode == vehicle_status_s::RC_IN_MODE_GENERATED);
 
 			if (_mode == MAVLINK_MODE_IRIDIUM) {
+
 				if (_transmitting_enabled &&
-				    !status.high_latency_data_link_active &&
+				    status.high_latency_data_link_lost &&
 				    !_transmitting_enabled_commanded &&
 				    (_first_heartbeat_sent)) {
+
 					_transmitting_enabled = false;
 					mavlink_and_console_log_info(&_mavlink_log_pub, "Disable transmitting with IRIDIUM mavlink on device %s", _device_name);
 
-				} else if (!_transmitting_enabled && status.high_latency_data_link_active) {
+				} else if (!_transmitting_enabled && !status.high_latency_data_link_lost) {
 					_transmitting_enabled = true;
 					mavlink_and_console_log_info(&_mavlink_log_pub, "Enable transmitting with IRIDIUM mavlink on device %s", _device_name);
 				}
@@ -2564,15 +2552,20 @@ void Mavlink::publish_telemetry_status()
 	_tstatus.streams = _streams.size();
 
 	_tstatus.timestamp = hrt_absolute_time();
-	int instance;
-	orb_publish_auto(ORB_ID(telemetry_status), &_telem_status_pub, &_tstatus, &instance, ORB_PRIO_DEFAULT);
+
+	if (_telem_status_pub == nullptr) {
+		_telem_status_pub = orb_advertise_queue(ORB_ID(telemetry_status), &_tstatus, 3);
+
+	} else {
+		orb_publish(ORB_ID(telemetry_status), _telem_status_pub, &_tstatus);
+	}
 }
 
 void Mavlink::check_radio_config()
 {
 	/* radio config check */
 	if (_uart_fd >= 0 && _param_radio_id.get() != 0
-	    && _tstatus.type == telemetry_status_s::TELEMETRY_STATUS_RADIO_TYPE_3DR_RADIO) {
+	    && _tstatus.type == telemetry_status_s::LINK_TYPE_3DR_RADIO) {
 		/* request to configure radio and radio is present */
 		FILE *fs = fdopen(_uart_fd, "w");
 
@@ -2716,7 +2709,7 @@ Mavlink::display_status()
 		printf("\ttype:\t\t");
 
 		switch (_tstatus.type) {
-		case telemetry_status_s::TELEMETRY_STATUS_RADIO_TYPE_3DR_RADIO:
+		case telemetry_status_s::LINK_TYPE_3DR_RADIO:
 			printf("3DR RADIO\n");
 			printf("\t  rssi:\t\t%d\n", _rstatus.rssi);
 			printf("\t  remote rssi:\t%u\n", _rstatus.remote_rssi);
@@ -2727,7 +2720,7 @@ Mavlink::display_status()
 			printf("\t  fixed:\t%u\n", _rstatus.fix);
 			break;
 
-		case telemetry_status_s::TELEMETRY_STATUS_RADIO_TYPE_USB:
+		case telemetry_status_s::LINK_TYPE_USB:
 			printf("USB CDC\n");
 			break;
 
