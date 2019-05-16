@@ -462,6 +462,7 @@ MulticopterPositionControl::poll_subscriptions()
 		vehicle_attitude_s att;
 		if (orb_copy(ORB_ID(vehicle_attitude), _att_sub, &att) == PX4_OK && PX4_ISFINITE(att.q[0])) {
 			_states.yaw = Eulerf(Quatf(att.q)).psi();
+			_states.q = att.q;
 		}
 	}
 
@@ -617,6 +618,7 @@ MulticopterPositionControl::run()
 		const bool was_in_failsafe = _in_failsafe;
 		_in_failsafe = false;
 
+		/*
 		// activate the weathervane controller if required. If activated a flighttask can use it to implement a yaw-rate control strategy
 		// that turns the nose of the vehicle into the wind
 		if (_wv_controller != nullptr) {
@@ -632,6 +634,7 @@ MulticopterPositionControl::run()
 
 			_wv_controller->update(matrix::Quatf(_att_sp.q_d), _states.yaw);
 		}
+		*/
 
 		// start takeoff after delay to allow motors to reach idle speed
 		_spoolup_time_hysteresis.set_state_and_update(_control_mode.flag_armed);
@@ -651,7 +654,7 @@ MulticopterPositionControl::run()
 			// setpoints from flighttask
 			vehicle_local_position_setpoint_s setpoint;
 
-			_flight_tasks.setYawHandler(_wv_controller);
+			//_flight_tasks.setYawHandler(_wv_controller);
 
 			// update task
 			if (!_flight_tasks.update()) {
@@ -683,7 +686,7 @@ MulticopterPositionControl::run()
 			 * point_0 contains the current position with the desired velocity
 			 * point_1 contains _pos_sp_triplet.current if valid
 			 */
-			update_avoidance_waypoint_desired(_states, setpoint);
+			//update_avoidance_waypoint_desired(_states, setpoint);
 
 			vehicle_constraints_s constraints = _flight_tasks.getConstraints();
 			landing_gear_s gear = _flight_tasks.getGear();
@@ -734,10 +737,10 @@ MulticopterPositionControl::run()
 				limit_altitude(setpoint);
 			}
 
-			// adjust setpoints based on avoidance
+			/*// adjust setpoints based on avoidance
 			if (use_obstacle_avoidance()) {
 				execute_avoidance_waypoint(setpoint);
-			}
+			}*/
 
 			// Update states, setpoints and constraints.
 			_control.updateConstraints(constraints);
@@ -789,7 +792,7 @@ MulticopterPositionControl::run()
 			}
 
 			// Fill attitude setpoint. Attitude is computed from yaw and thrust setpoint.
-			_att_sp = ControlMath::thrustToAttitude(matrix::Vector3f(local_pos_sp.thrust), local_pos_sp.yaw);
+			_att_sp = ControlMath::thrustToAttitude(matrix::Vector3f(local_pos_sp.thrust), local_pos_sp.yaw, _states);
 			_att_sp.yaw_sp_move_rate = _control.getYawspeedSetpoint();
 			_att_sp.fw_control_yaw = false;
 			_att_sp.apply_flaps = false;

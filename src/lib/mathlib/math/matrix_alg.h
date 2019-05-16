@@ -48,3 +48,4 @@
 float *mat_mul(float *A, float *B, uint8_t n);
 bool mat_inverse(float *A, float *inv, uint8_t n);
 bool inverse4x4(float m[], float invOut[]);
+bool inverse3x3(float m[], float invOut[]);

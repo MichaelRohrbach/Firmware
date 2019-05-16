@@ -388,3 +388,44 @@ bool inverse4x4(float m[], float invOut[])
 
 	return true;
 }
+
+
+
+bool inverse3x3(float m[], float invOut[])
+{
+	float inv[9], det;
+	uint8_t i;
+
+	inv[0] = m[5]  * m[10] * m[15] -
+		 m[5]  * m[11] * m[14] -
+		 m[9]  * m[6]  * m[15] +
+		 m[9]  * m[7]  * m[14] +
+		 m[13] * m[6]  * m[11] -
+		 m[13] * m[7]  * m[10];
+
+	inv[0] = m[4]*m[8] - m[5]*m[7];
+	inv[1] = m[2]*m[7] - m[1]*m[8];
+	inv[2] = m[1]*m[5] - m[2]*m[4];
+
+	inv[3] = m[5]*m[6] - m[3]*m[8];
+	inv[4] = m[0]*m[8] - m[2]*m[6];
+	inv[5] = m[1]*m[6] - m[0]*m[5];
+
+	inv[6] = m[3]*m[7] - m[4]*m[6];
+	inv[7] = m[1]*m[6] - m[0]*m[7];
+	inv[8] = m[0]*m[4] - m[1]*m[3];
+
+	det = m[0]*(m[4]*m[8]-m[5]*m[7]) - m[1]*(m[3]*m[8]-m[5]*m[6]) + m[2]*(m[3]*m[7]-m[4]*m[6]);
+
+	if (fabsf(det) < 1.1755e-38f) {
+		return false;
+	}
+
+	det = 1.0f / det;
+
+	for (i = 0; i < 9; i++) {
+		invOut[i] = inv[i] * det;
+	}
+
+	return true;
+}

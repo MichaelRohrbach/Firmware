@@ -44,10 +44,11 @@
 using namespace matrix;
 namespace ControlMath
 {
-vehicle_attitude_setpoint_s thrustToAttitude(const Vector3f &thr_sp, const float yaw_sp)
+vehicle_attitude_setpoint_s thrustToAttitude(const Vector3f &thr_sp, const float yaw_sp, PositionControlStates &states)
 {
 	vehicle_attitude_setpoint_s att_sp = {};
-	att_sp.yaw_body = yaw_sp;
+	/**************** THis shouldn't have any effext ************************/
+	att_sp.yaw_body = 0.0f;//*yaw_sp;
 
 	// desired body_z axis = -normalize(thrust_vector)
 	Vector3f body_x, body_y, body_z;
@@ -93,18 +94,62 @@ vehicle_attitude_setpoint_s thrustToAttitude(const Vector3f &thr_sp, const float
 		R_sp(i, 1) = body_y(i);
 		R_sp(i, 2) = body_z(i);
 	}
+	/******************** End no effet***************************/
 
+	/*******Make Rotional Matrix from current quaterion**********/
+	//Rot;
+	Dcmf Rot = states.q;
+	/****************Invert the rotational matrix****************/
+	float det;
+	uint8_t i;
+	Vector3f Rinv0, Rinv1, Rinv2, Rinv0Out, Rinv1Out, Rinv2Out;
+
+	Rinv0(0) = Rot(1,1)*Rot(2,2) - Rot(1,2)*Rot(2,1);
+	Rinv0(1) = Rot(0,2)*Rot(2,1) - Rot(0,1)*Rot(2,2);
+	Rinv0(2) = Rot(0,1)*Rot(1,2) - Rot(0,2)*Rot(1,1);
+
+	Rinv1(0) = Rot(1,2)*Rot(2,0) - Rot(1,0)*Rot(2,2);
+	Rinv1(1) = Rot(0,0)*Rot(2,2) - Rot(0,2)*Rot(2,0);
+	Rinv1(2) = Rot(0,2)*Rot(1,0) - Rot(0,0)*Rot(1,2);
+
+	Rinv2(0) = Rot(1,0)*Rot(2,1) - Rot(1,1)*Rot(2,0);
+	Rinv2(1) = Rot(0,1)*Rot(2,0) - Rot(0,0)*Rot(2,1);
+	Rinv2(2) = Rot(0,0)*Rot(1,1) - Rot(0,1)*Rot(1,0);
+
+	det = Rot(0,0)*(Rot(1,1)*Rot(2,2)-Rot(1,2)*Rot(2,1)) - Rot(0,1)*(Rot(1,0)*Rot(2,2)-Rot(1,2)*Rot(2,0)) + Rot(0,2)*(Rot(1,0)*Rot(2,1)-Rot(1,1)*Rot(2,0));
+
+	if (fabsf(det) < 1.1755e-38f) {
+		det = 0.01;
+	}
+
+	det = 1.0f / det;
+
+	for (i = 0; i < 3; i++) {
+		Rinv0Out(i) = Rinv0(i) * det;
+		Rinv1Out(i) = Rinv2(i) * det;
+		Rinv2Out(i) = Rinv2(i) * det;
+	}
+	/****************End Inverse*********************************/
+
+	/*****************Apply the rotation*************************/
+	att_sp.thrust_body[0] = thr_sp(0)*Rinv0Out(0) + thr_sp(1)*Rinv0Out(1) + thr_sp(2)*Rinv0Out(2);
+	att_sp.thrust_body[1] = thr_sp(0)*Rinv1Out(0) + thr_sp(1)*Rinv1Out(1) + thr_sp(2)*Rinv1Out(2);
+	att_sp.thrust_body[2] = thr_sp(0)*Rinv2Out(0) + thr_sp(1)*Rinv2Out(1) + thr_sp(2)*Rinv2Out(2);
+	/*****************End rotation*******************************/
+
+	/**************** These should note be used in the attitude control!***********************/
 	//copy quaternion setpoint to attitude setpoint topic
-	Quatf q_sp = R_sp;
+	//Quatf q_sp = R_sp;
+	Quatf q_sp = matrix::Eulerf(0.0f, 0.0f, 0.0f);
 	q_sp.copyTo(att_sp.q_d);
 	att_sp.q_d_valid = true;
 
 	// calculate euler angles, for logging only, must not be used for control
-	Eulerf euler = R_sp;
-	att_sp.roll_body = euler(0);
-	att_sp.pitch_body = euler(1);
-	att_sp.thrust_body[2] = -thr_sp.length();
-
+	//Eulerf euler = R_sp;
+	att_sp.roll_body = 0.0f;//euler(0);
+	att_sp.pitch_body = 0.0f;//euler(1);
+	//att_sp.thrust_body[2] = -thr_sp.length();
+	/***********************End, not usable parameters*****************************************/
 	return att_sp;
 }
 

@@ -49,6 +49,7 @@ struct PositionControlStates {
 	matrix::Vector3f position;
 	matrix::Vector3f velocity;
 	matrix::Vector3f acceleration;
+	matrix::Quatf q;
 	float yaw;
 };
 
@@ -202,7 +203,7 @@ private:
 	 */
 	bool _interfaceMapping();
 
-	void _positionController(); /** applies the P-position-controller */
+	void _positionController(const float &dt); /** applies the P-position-controller */
 	void _velocityController(const float &dt); /** applies the PID-velocity-controller */
 	void _setCtrlFlag(bool value); /**< set control-loop flags (only required for logging) */
 

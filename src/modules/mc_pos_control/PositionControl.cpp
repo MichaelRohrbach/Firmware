@@ -104,8 +104,8 @@ void PositionControl::generateThrustYawSetpoint(const float dt)
 		_acc_sp = _acc;
 
 	} else {
-		_positionController();
-		_velocityController(dt);
+		_positionController(dt);
+		//_velocityController(dt);
 	}
 }
 
@@ -212,20 +212,43 @@ bool PositionControl::_interfaceMapping()
 	return !(failsafe);
 }
 
-void PositionControl::_positionController()
+void PositionControl::_positionController(const float &dt)
 {
 	// P-position controller
 	const Vector3f vel_sp_position = (_pos_sp - _pos).emult(Vector3f(MPC_XY_P.get(), MPC_XY_P.get(), MPC_Z_P.get()));
 	_vel_sp = vel_sp_position + _vel_sp;
 
-	// Constrain horizontal velocity by prioritizing the velocity component along the
-	// the desired position setpoint over the feed-forward term.
-	const Vector2f vel_sp_xy = ControlMath::constrainXY(Vector2f(vel_sp_position),
-				   Vector2f(_vel_sp - vel_sp_position), MPC_XY_VEL_MAX.get());
-	_vel_sp(0) = vel_sp_xy(0);
-	_vel_sp(1) = vel_sp_xy(1);
-	// Constrain velocity in z-direction.
+
+
+	// Constrain velocity in x-, y- and z-direction.
+	_vel_sp(0) = math::constrain(_vel_sp(2), -_constraints.speed_xy, _constraints.speed_xy);
+	_vel_sp(1) = math::constrain(_vel_sp(2), -_constraints.speed_xy, _constraints.speed_xy);
 	_vel_sp(2) = math::constrain(_vel_sp(2), -_constraints.speed_up, _constraints.speed_down);
+
+	const Vector3f vel_err = _vel_sp - _vel;
+
+	/******************************************************************************/
+	// PD full controller for NED-direction.
+	Vector3f thrust_desired_NED;
+	thrust_desired_NED(0) = vel_sp_position(0) + MPC_XY_VEL_P.get() * vel_err(0);
+	thrust_desired_NED(1) = vel_sp_position(1) + MPC_XY_VEL_P.get() * vel_err(1);
+	thrust_desired_NED(2) = vel_sp_position(2) + MPC_Z_VEL_P.get() * vel_err(2) - MPC_THR_HOVER.get();
+	//********* IMPORTANT: need to tune the MPC_THR_HOVER, since we have middle stick position as zero throttle!
+
+	// Saturate thrust in NED-direction.
+	_thr_sp(0) = thrust_desired_NED(0);
+	_thr_sp(1) = thrust_desired_NED(1);
+	_thr_sp(2) = thrust_desired_NED(2);
+
+	if (thrust_desired_NED * thrust_desired_NED > MPC_THR_MAX.get() * MPC_THR_MAX.get()) {
+		float mag = thrust_desired_NED.length();
+		_thr_sp(0) = thrust_desired_NED(0) / mag * MPC_THR_MAX.get();
+		_thr_sp(1) = thrust_desired_NED(1) / mag * MPC_THR_MAX.get();
+		_thr_sp(2) = thrust_desired_NED(2) / mag * MPC_THR_MAX.get();
+	}
+
+	//************** No anti reset windup compensation or integral update, as no integral term so far!
+
 }
 
 void PositionControl::_velocityController(const float &dt)
